@@ -6,3 +6,10 @@ log/
 
 # Ignore dataset directory
 dataset/
+
+# __pycache__/
+__pycache__/
+
+# result
+result/
+test_results/
