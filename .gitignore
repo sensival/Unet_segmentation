@@ -1,0 +1,8 @@
+# Ignore checkpoint directory
+checkpoint/
+
+# Ignore log directory
+log/
+
+# Ignore dataset directory
+dataset/
