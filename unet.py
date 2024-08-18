@@ -2,15 +2,16 @@ import os
 import numpy as np
 
 import torch.nn as nn
+import torch.nn.functional as F
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms, datasets
 from PIL import Image
-
 import matplotlib.pyplot as plt
 
+from pathlib import Path
 
 
 
@@ -19,7 +20,14 @@ import matplotlib.pyplot as plt
 lr = 1e-3
 batch_size = 4
 num_epoch = 1
-data_dir = './dataset/images'  
+data_dir = './dataset'  
+origins_folder =os.path.join(data_dir, "train/inputs")
+masks_folder = os.path.join(data_dir, "train/labels")
+val_input_dir = os.path.join(data_dir, "val/inputs")
+val_label_dir = os.path.join(data_dir, "val/inputs")
+models_folder = Path("models")
+images_folder = Path("images")
+
 ckpt_dir = './checkpoint' # 트레이닝된 데이터 저장
 log_dir = './log' # 텐서보드 로그
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -160,209 +168,107 @@ class UNet(nn.Module):
 
         return x
 
+from torch.utils.data import Dataset
 
-class Dataset(torch.utils.data.Dataset):
-    
-    def __init__(self, data_dir, transform=None):
-        self.data_dir = data_dir
+# Custom Dataset class
+class SegmentationDataset(Dataset):
+    def __init__(self, image_dir, mask_dir, transform=None):
+        self.image_dir = image_dir
+        self.mask_dir = mask_dir
         self.transform = transform
-
-        # List files in directories
-        input_dir = os.path.join(self.data_dir, 'inputs')
-        label_dir = os.path.join(self.data_dir, 'labels')
-        
-        self.lst_input = sorted([f for f in os.listdir(input_dir) if f.endswith('.png')])
-        self.lst_label = sorted([f for f in os.listdir(label_dir) if f.endswith('.png')])
-        
-        # Ensure both lists are of the same length and corresponding
-        assert len(self.lst_input) == len(self.lst_label), "Number of input and label images do not match"
+        self.image_filenames = sorted(os.listdir(image_dir))
+        self.mask_filenames = sorted(os.listdir(mask_dir))
 
     def __len__(self):
-        return len(self.lst_input)
+        return len(self.image_filenames)
 
-    def __getitem__(self, index):
-        input_filename = self.lst_input[index]
-        label_filename = self.lst_label[index]
-        
-        input_path = os.path.join(self.data_dir, 'inputs', input_filename)
-        label_path = os.path.join(self.data_dir, 'labels', label_filename)
-        
-        # Load images using PIL
-        input_image = Image.open(input_path).convert('RGB')
-        label_image = Image.open(label_path).convert('RGB')
-        
-        # Convert images to numpy arrays
-        input_array = np.array(input_image, dtype=np.float32)
-        label_array = np.array(label_image, dtype=np.float32)
-        
-        # Normalize images to [0, 1]
-        input_array /= 255.0
-        label_array /= 255.0
-        
-        # Convert to grayscale if the images are essentially grayscale but in RGB format
-        if input_array.ndim == 3 and input_array.shape[2] == 3:
-            input_array = np.mean(input_array, axis=2, keepdims=True)
-        if label_array.ndim == 3 and label_array.shape[2] == 3:
-            label_array = np.mean(label_array, axis=2, keepdims=True)
-        
-        # Add channel dimension
-        input_array = np.transpose(input_array, (2, 0, 1))  # Convert to (C, H, W)
-        label_array = np.transpose(label_array, (2, 0, 1))  # Convert to (C, H, W)
-        
-        data = {'input': input_array, 'label': label_array}
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.image_dir, self.image_filenames[idx])
+        mask_path = os.path.join(self.mask_dir, self.mask_filenames[idx])
+
+        image = Image.open(img_path).convert("L")  # 흑백 이미지로 불러옴
+        mask = Image.open(mask_path).convert("L")  # 흑백 이미지로 불러옴
 
         if self.transform:
-            data = self.transform(data)
-        
-        return data
-    
-class ToTensor(object):
-    def __call__(self, data):
-        label, input = data['label'], data['input']
-        
-        # Ensure data is in numpy format
-        if isinstance(label, torch.Tensor):
-            label = label.numpy()
-        if isinstance(input, torch.Tensor):
-            input = input.numpy()
-        
-        # Convert numpy arrays to PyTorch tensors
-        label = torch.from_numpy(label).float()
-        input = torch.from_numpy(input).float()
-        
-        data = {'label': label, 'input': input}
-        
-        return data
+            image = self.transform(image)
+            mask = self.transform(mask)
 
+        return image, mask
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# 데이터셋 불러오기
+train_transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.ToTensor(),
+])
 
-# transform 적용해서 데이터 셋 불러오기
-transform = transforms.Compose([transforms.Normalize(mean=0.5, std=0.5), transforms.RandomHorizontalFlip(p=0.5), transforms.RandomVerticalFlip(p=0.5), ToTensor()])
-dataset_train = Dataset(data_dir=os.path.join(data_dir,'train'),transform=transform)
+val_transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.ToTensor(),
+])
 
-# 불러온 데이터셋, 배치 size줘서 DataLoader 해주기
-loader_train = DataLoader(dataset_train, batch_size = batch_size, shuffle=True)
+train_dataset = SegmentationDataset(image_dir=origins_folder, mask_dir=masks_folder, transform=train_transform)
+val_dataset = SegmentationDataset(image_dir=val_input_dir, mask_dir=val_label_dir, transform=val_transform)
 
-# val set도 동일하게 진행
-dataset_val = Dataset(data_dir=os.path.join(data_dir,'val'),transform = transform)
-loader_val = DataLoader(dataset_val, batch_size=batch_size , shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-# 네트워크 불러오기
-net = UNet().to(device) # device : cpu or gpu
+# 모델 인스턴스화 및 손실함수, 옵티마이저 설정
+model = UNet().to(device)
+criterion = nn.BCEWithLogitsLoss()  # Binary Cross Entropy with logits (마지막 레이어에서 sigmoid를 하지 않은 경우)
+optimizer = optim.Adam(model.parameters(), lr=lr)
+# 손실 기록 리스트
+train_losses = []
+val_losses = []
 
-# loss 정의
-fn_loss = nn.BCEWithLogitsLoss().to(device)
+# 학습 및 검증 루프
+for epoch in range(num_epoch):
+    model.train()
+    train_loss = 0.0
+    for images, masks in train_loader:
+        images, masks = images.to(device), masks.to(device)
 
-# Optimizer 정의
-optim = torch.optim.Adam(net.parameters(), lr = lr ) 
+        # Forward pass
+        outputs = model(images)
+        loss = criterion(outputs, masks)
 
-# 기타 variables 설정
-num_train = len(dataset_train)
-num_val = len(dataset_val)
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-num_train_for_epoch = np.ceil(num_train/batch_size) # np.ceil : 소수점 반올림
-num_val_for_epoch = np.ceil(num_val/batch_size)
+        train_loss += loss.item() * images.size(0)
 
-# 기타 function 설정
-fn_tonumpy = lambda x : x.to('cpu').detach().numpy().transpose(0,2,3,1) # device 위에 올라간 텐서를 detach 한 뒤 numpy로 변환
-fn_denorm = lambda x, mean, std : (x * std) + mean 
-fn_classifier = lambda x :  1.0 * (x > 0.5)  # threshold 0.5 기준으로 indicator function으로 classifier 구현
+    train_loss = train_loss / len(train_loader.dataset)
+    train_losses.append(train_loss)  # 학습 손실 기록
 
-# Tensorbord
-writer_train = SummaryWriter(log_dir=os.path.join(log_dir,'train'))
-writer_val = SummaryWriter(log_dir = os.path.join(log_dir,'val'))
-# 네트워크 저장하기
-# train을 마친 네트워크 저장 
-# net : 네트워크 파라미터, optim  두개를 dict 형태로 저장
-def save(ckpt_dir,net,optim,epoch):
-    if not os.path.exists(ckpt_dir):
-        os.makedirs(ckpt_dir)
+    # Validation step
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for images, masks in val_loader:
+            images, masks = images.to(device), masks.to(device)
 
-    torch.save({'net':net.state_dict(),'optim':optim.state_dict()},'%s/model_epoch%d.pth'%(ckpt_dir,epoch))
+            outputs = model(images)
+            loss = criterion(outputs, masks)
 
-# 네트워크 불러오기
-def load(ckpt_dir,net,optim):
-    if not os.path.exists(ckpt_dir): # 저장된 네트워크가 없다면 인풋을 그대로 반환
-        epoch = 0
-        return net, optim, epoch
-    
-    ckpt_lst = os.listdir(ckpt_dir) # ckpt_dir 아래 있는 모든 파일 리스트를 받아온다
-    ckpt_lst.sort(key = lambda f : int(''.join(filter(str,isdigit,f))))
+            val_loss += loss.item() * images.size(0)
 
-    dict_model = torch.load('%s/%s' % (ckpt_dir,ckpt_lst[-1]))
+    val_loss = val_loss / len(val_loader.dataset)
+    val_losses.append(val_loss)  # 검증 손실 기록
 
-    net.load_state_dict(dict_model['net'])
-    optim.load_state_dict(dict_model['optim'])
-    epoch = int(ckpt_lst[-1].split('epoch')[1].split('.pth')[0])
+    print(f"Epoch {epoch+1}/{num_epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-    return net,optim,epoch
+    # 모델 저장
+    if epoch % 10 == 0 or epoch == num_epoch - 1:
+        torch.save(model.state_dict(), os.path.join(ckpt_dir,  f"unet_epoch_{epoch+1}.pth"))
 
-
-# 네트워크 학습시키기
-start_epoch = 0
-net, optim, start_epoch = load(ckpt_dir = ckpt_dir, net = net, optim = optim) # 저장된 네트워크 불러오기
-
-for epoch in range(start_epoch+1,num_epoch +1):
-    net.train()
-    loss_arr = []
-
-    for batch, data in enumerate(loader_train,1): # 1은 뭐니 > index start point
-        # forward
-        label = data['label'].to(device)   # 데이터 device로 올리기     
-        inputs = data['input'].to(device)
-        output = net(inputs) 
-
-        # backward
-        optim.zero_grad()  # gradient 초기화
-        loss = fn_loss(output, label)  # output과 label 사이의 loss 계산
-        loss.backward() # gradient backpropagation
-        optim.step() # backpropa 된 gradient를 이용해서 각 layer의 parameters update
-
-        # save loss
-        loss_arr += [loss.item()]
-
-        # tensorbord에 결과값들 저정하기
-        label = fn_tonumpy(label)
-        inputs = fn_tonumpy(fn_denorm(inputs,0.5,0.5))
-        output = fn_tonumpy(fn_classifier(output))
-
-        writer_train.add_image('label', label, num_train_for_epoch * (epoch - 1) + batch, dataformats='NHWC')
-        writer_train.add_image('input', inputs, num_train_for_epoch * (epoch - 1) + batch, dataformats='NHWC')
-        writer_train.add_image('output', output, num_train_for_epoch * (epoch - 1) + batch, dataformats='NHWC')
-
-    writer_train.add_scalar('loss', np.mean(loss_arr), epoch)
-
-    
-    # validation
-    with torch.no_grad(): # validation 이기 때문에 backpropa 진행 x, 학습된 네트워크가 정답과 얼마나 가까운지 loss만 계산
-        net.eval() # 네트워크를 evaluation 용으로 선언
-        loss_arr = []
-
-        for batch, data in enumerate(loader_val,1):
-            # forward
-            label = data['label'].to(device)
-            inputs = data['input'].to(device)
-            output = net(inputs)
-
-            # loss 
-            loss = fn_loss(output,label)
-            loss_arr += [loss.item()]
-            print('valid : epoch %04d / %04d | Batch %04d \ %04d | Loss %04d'%(epoch,num_epoch,batch,num_val_for_epoch,np.mean(loss_arr)))
-
-            # Tensorboard 저장하기
-            label = fn_tonumpy(label)
-            inputs = fn_tonumpy(fn_denorm(inputs, mean=0.5, std=0.5))
-            output = fn_tonumpy(fn_classifier(output))
-
-            writer_val.add_image('label', label, num_val_for_epoch * (epoch - 1) + batch, dataformats='NHWC')
-            writer_val.add_image('input', inputs, num_val_for_epoch * (epoch - 1) + batch, dataformats='NHWC')
-            writer_val.add_image('output', output, num_val_for_epoch * (epoch - 1) + batch, dataformats='NHWC')
-
-        writer_val.add_scalar('loss', np.mean(loss_arr), epoch)
-
-        # epoch이 끝날때 마다 네트워크 저장
-        save(ckpt_dir=ckpt_dir, net = net, optim = optim, epoch = epoch)
-
-writer_train.close()
-writer_val.close()
+# 학습 과정 시각화
+plt.figure(figsize=(10, 5))
+plt.plot(range(1, num_epoch+1), train_losses, label='Train Loss')
+plt.plot(range(1, num_epoch+1), val_losses, label='Val Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.title('Train and Val Loss')
+plt.legend()
+plt.grid(True)
+plt.show()
