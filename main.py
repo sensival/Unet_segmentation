@@ -27,6 +27,7 @@ origins_folder =os.path.join(data_dir, "train/inputs")
 masks_folder = os.path.join(data_dir, "train/labels")
 val_input_dir = os.path.join(data_dir, "val/inputs")
 val_label_dir = os.path.join(data_dir, "val/inputs")
+
 models_folder = Path("models")
 images_folder = Path("images")
 
