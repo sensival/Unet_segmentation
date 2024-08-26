@@ -1,3 +1,4 @@
+# 메인코드
 import os
 import numpy as np
 
@@ -19,9 +20,9 @@ from unet import UNet
 
 
 ## 하이퍼파라미터
-lr = 1e-3
+lr = 1e-4
 batch_size = 4
-num_epoch = 1
+num_epoch = 200
 data_dir = './dataset'  
 origins_folder =os.path.join(data_dir, "train/inputs")
 masks_folder = os.path.join(data_dir, "train/labels")
@@ -55,8 +56,8 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_w
 
 # 모델 인스턴스화 및 손실함수, 옵티마이저 설정
 model = UNet().to(device)
-# criterion = nn.BCEWithLogitsLoss()  # Binary Cross Entropy with logits (마지막 레이어에서 sigmoid를 하지 않은 경우)
-criterion = DiceLoss()
+criterion_BCE = nn.BCEWithLogitsLoss()  # Binary Cross Entropy with logits (마지막 레이어에서 sigmoid를 하지 않은 경우)
+criterion_dice = DiceLoss()
 optimizer = optim.Adam(model.parameters(), lr=lr)
 # 손실 기록 리스트
 train_losses = []
@@ -73,17 +74,20 @@ for epoch in range(num_epoch):
 
         # Forward pass
         outputs = model(images)
-        loss = criterion(outputs, masks)
+        loss = criterion_dice(outputs, masks)
+        #print('tr output:',outputs.min(), outputs.max()) 
+        #print('tr mask:',masks.min(), masks.max()) 
 
         # Backward pass and optimization
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
+        
         train_loss += loss.item() * images.size(0)
         #print('running {}'.format(num))
         #num = num+1
-    train_loss = train_loss / len(train_loader.dataset)
+    print('tr loss:',train_loss,'\n','tr image size:', images.size(0), '\n','tr len(train_loader):',len(train_loader.dataset), '\n')
+    train_loss = train_loss / len(train_loader.dataset) 
     train_losses.append(train_loss)  # 학습 손실 기록
 
     # Validation step
@@ -95,10 +99,12 @@ for epoch in range(num_epoch):
             images, masks = images.to(device), masks.to(device)
 
             outputs = model(images)
-            loss = criterion(outputs, masks)
-
+            loss = criterion_dice(outputs, masks)
+            #print('val output:', outputs.min(), outputs.max()) 
+            #print('val mask:', masks.min(), masks.max()) 
+            
             val_loss += loss.item() * images.size(0)
-
+    print('va loss:',val_loss,'\n','va image size:', images.size(0), '\n','va len(val_loader):',len(val_loader.dataset), '\n')
     val_loss = val_loss / len(val_loader.dataset)
     val_losses.append(val_loss)  # 검증 손실 기록
 
