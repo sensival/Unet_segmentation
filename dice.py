@@ -16,7 +16,7 @@ class DiceLoss(nn.Module):
         
         intersection = (inputs * targets).sum()                            
         dice = (2.*intersection + smooth) / (inputs.sum() + targets.sum() + smooth)  
-        
+        # recall = (intersection + smooth) / (targets.sum() + smooth)  
         return 1 - dice 
 
 
@@ -29,7 +29,7 @@ class DiceLoss_for_test(nn.Module):
         dice_per_class = []
 
         if inputs.shape[1] == 1:  # 단일 클래스인 경우
-            #input_class = F.sigmoid(inputs).view(-1)
+            input_class = F.sigmoid(inputs).view(-1)
             target_class = targets.view(-1)
 
             intersection = (input_class * target_class).sum()
