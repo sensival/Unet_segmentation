@@ -1,8 +1,8 @@
+# 데이터셋 만드는 코드
 import os
 from PIL import Image
 from torch.utils.data import Dataset
 import numpy as np
-
 
 # Custom Dataset class
 class SegmentationDataset(Dataset):
@@ -23,9 +23,10 @@ class SegmentationDataset(Dataset):
         image = Image.open(img_path).convert("L")  # 흑백 이미지로 불러옴
         mask = Image.open(mask_path).convert("L")  # 흑백 이미지로 불러옴
 
-        # Mask 정규화
-        mask = np.array(mask) / 255.0  # 0과 1로 정규화
-        mask = Image.fromarray(mask)
+         # Mask 정규화
+        #mask = np.array(mask) / 255.0  # 0과 1로 정규화
+        #mask = Image.fromarray(mask)
+
 
         if self.transform:
             image = self.transform(image)
