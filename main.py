@@ -27,7 +27,7 @@ data_dir = './dataset'
 origins_folder =os.path.join(data_dir, "train/inputs")
 masks_folder = os.path.join(data_dir, "train/labels")
 val_input_dir = os.path.join(data_dir, "val/inputs")
-val_label_dir = os.path.join(data_dir, "val/inputs")
+val_label_dir = os.path.join(data_dir, "val/labels")
 
 models_folder = Path("models")
 images_folder = Path("images")
@@ -74,7 +74,7 @@ for epoch in range(num_epoch):
 
         # Forward pass
         outputs = model(images)
-        loss = criterion_dice(outputs, masks)
+        loss = criterion_BCE(outputs, masks)
         #print('tr output:',outputs.min(), outputs.max()) 
         #print('tr mask:',masks.min(), masks.max()) 
 
@@ -87,7 +87,7 @@ for epoch in range(num_epoch):
         #print('running {}'.format(num))
         #num = num+1
     print('tr loss:',train_loss,'\n','tr image size:', images.size(0), '\n','tr len(train_loader):',len(train_loader.dataset), '\n')
-    train_loss = train_loss / len(train_loader.dataset) 
+    train_loss = train_loss / len(train_loader) 
     train_losses.append(train_loss)  # 학습 손실 기록
 
     # Validation step
@@ -99,13 +99,13 @@ for epoch in range(num_epoch):
             images, masks = images.to(device), masks.to(device)
 
             outputs = model(images)
-            loss = criterion_dice(outputs, masks)
+            loss = criterion_BCE(outputs, masks)
             #print('val output:', outputs.min(), outputs.max()) 
             #print('val mask:', masks.min(), masks.max()) 
             
             val_loss += loss.item() * images.size(0)
     print('va loss:',val_loss,'\n','va image size:', images.size(0), '\n','va len(val_loader):',len(val_loader.dataset), '\n')
-    val_loss = val_loss / len(val_loader.dataset)
+    val_loss = val_loss / len(val_loader)
     val_losses.append(val_loss)  # 검증 손실 기록
 
     print(f"Epoch {epoch+1}/{num_epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
